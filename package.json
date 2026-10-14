@@ -1,0 +1,28 @@
+{
+  "name": "token-minting",
+  "version": "1.0.0",
+  "description": "Solana Fixed-Price Token Sale",
+  "scripts": {
+    "create-token": "npx ts-node scripts/create-token.ts",
+    "create-sale": "npx ts-node scripts/create-sale.ts",
+    "buy-tokens": "npx ts-node scripts/buy-tokens.ts",
+    "check-balance": "npx ts-node scripts/check-balances.ts",
+    "finalize-sale": "npx ts-node scripts/finalize-sale.ts"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.30.1",
+    "@solana/spl-token": "^0.4.9",
+    "@solana/web3.js": "^1.95.4",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3",
+    "chai": "^4.4.1",
+    "@types/chai": "^4.3.19",
+    "mocha": "^10.7.3",
+    "@types/mocha": "^10.0.7",
+    "ts-mocha": "^10.0.0"
+  }
+}

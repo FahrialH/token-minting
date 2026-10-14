@@ -1,0 +1,2 @@
+Created file file:///D:/IDP-opentech/token-minting/scripts/create-token.ts with requested content.
+If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
