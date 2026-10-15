@@ -1,0 +1,46 @@
+ token-minting - Copy  $env:ENV_FILE=".env.evgo"; npm run create-sale
+
+> token-minting@1.0.0 create-sale
+> npx ts-node scripts/create-sale.ts
+
+bigint: Failed to load bindings, pure JS will be used (try npm run rebuild?)
+🚀 Starting sale initialization...
+
+Connecting to Solana cluster: devnet (https://api.devnet.solana.com)
+📂 Loading admin keypair from: C:\Users\fahri\.config\solana\id.json
+👤 Admin public key: A7dsZyqVQWuX72juKW6qD1PyPoNDo4FWWm9boqpYczt9
+💰 Admin balance: 2.44981448 SOL
+
+📄 Loading IDL from: D:\IDP-opentech\token-minting - Copy\target\idl\token_sale.json
+📋 Program ID: DVGezEfHU5VwEGekdpc3PnUgUpfX2q6FdisG8hoGdF6c
+
+🪙 Mint: Gxv4uRGqTu1u3YQ78CLj44EnBH75j3RTqY3hx9ez7KJg
+📍 Sale PDA: DoJzyEJsQjAmvC7kJm8p9xP1BMajPRB87DYMGP7wDJWW (bump: 254)
+🏦 Vault (Sale PDA ATA): 72ddiWfNcYzhL5ZT7fx8GVGjEtuTokVezF6CYALiGxt2
+👛 Admin token account: vMLQvAGSaAJPNNWN8gXwNkKs74ZNMqcWSiKuUvm9dPz
+
+📊 Sale Parameters:
+   Price:         1000000 lamports per whole token
+   Allocation:    500000000 tokens (500000000000000000 base units)
+   Per-wallet max: 2000000 tokens (2000000000000000 base units)
+   Start:         2026-10-15T05:37:39.000Z
+   End:           2026-10-22T05:37:39.000Z
+   Duration:      604800 seconds
+
+📝 Sending initialize_sale transaction...
+Confirming transaction: 3y7D1N626ScZLhZENrieo1rxR8fTsBo826f5wjXpvooMBqtFcPwRUA4XnHB4G538dQs7RJG5bzqg8Fz2oewWFZLy
+Transaction confirmed: 3y7D1N626ScZLhZENrieo1rxR8fTsBo826f5wjXpvooMBqtFcPwRUA4XnHB4G538dQs7RJG5bzqg8Fz2oewWFZLy
+
+═══════════════════════════════════════════════════════════
+  SALE INITIALIZATION COMPLETE
+═══════════════════════════════════════════════════════════
+  Sale PDA:          DoJzyEJsQjAmvC7kJm8p9xP1BMajPRB87DYMGP7wDJWW
+  Vault:             72ddiWfNcYzhL5ZT7fx8GVGjEtuTokVezF6CYALiGxt2
+  Mint:              Gxv4uRGqTu1u3YQ78CLj44EnBH75j3RTqY3hx9ez7KJg
+  Price:             1000000 lamports/token
+  Allocation:        500000000 tokens
+  Per-wallet cap:    2000000 tokens
+  Start:             2026-10-15T05:37:39.000Z
+  End:               2026-10-22T05:37:39.000Z
+  Transaction:       3y7D1N626ScZLhZENrieo1rxR8fTsBo826f5wjXpvooMBqtFcPwRUA4XnHB4G538dQs7RJG5bzqg8Fz2oewWFZLy
+═══════════════════════════════════════════════════════════

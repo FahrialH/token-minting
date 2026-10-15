@@ -1,4 +1,4 @@
-import { PublicKey, Keypair } from "@solana/web3.js";
+import { PublicKey, Keypair, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import {
   createMint,
   getOrCreateAssociatedTokenAccount,
@@ -6,14 +6,18 @@ import {
   setAuthority,
   AuthorityType,
 } from "@solana/spl-token";
+import {
+  createCreateMetadataAccountV3Instruction,
+  PROGRAM_ID as METAPLEX_PROGRAM_ID,
+} from "@metaplex-foundation/mpl-token-metadata";
 import { getConfig, loadKeypair, getConnection, toBaseUnits, fromBaseUnits } from "./helpers";
 
 /**
  * create-token.ts
  *
  * Creates a new SPL token mint, mints the total supply to the admin's
- * associated token account, and optionally revokes the mint authority
- * to make the supply permanently fixed.
+ * associated token account, attaches Metaplex on-chain metadata (name,
+ * symbol, logo URI), and optionally revokes the mint authority.
  *
  * Usage:
  *   npx ts-node scripts/create-token.ts
@@ -21,6 +25,7 @@ import { getConfig, loadKeypair, getConnection, toBaseUnits, fromBaseUnits } fro
  * Prerequisites:
  *   - .env file with ADMIN_KEYPAIR_PATH, TOKEN_DECIMALS, TOTAL_SUPPLY,
  *     REVOKE_MINT_AUTHORITY, and SOLANA_CLUSTER configured.
+ *   - Optional: TOKEN_NAME, TOKEN_SYMBOL, and TOKEN_METADATA_URI for metadata.
  *   - Admin keypair must have enough SOL for transaction fees.
  */
 async function main(): Promise<void> {
@@ -82,7 +87,56 @@ async function main(): Promise<void> {
   );
   console.log(`✅ Mint transaction: ${mintTxSig}\n`);
 
-  // 6. Optionally revoke mint authority
+  // 6. Optionally create Metaplex metadata (must be done while mint authority is still active!)
+  let metadataCreated = false;
+  let metadataPdaAddress = "";
+  if (config.tokenName) {
+    console.log(`🎨 Creating Metaplex Token Metadata for "${config.tokenName}"...`);
+    const [metadataPda] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("metadata"),
+        METAPLEX_PROGRAM_ID.toBuffer(),
+        mint.toBuffer(),
+      ],
+      METAPLEX_PROGRAM_ID
+    );
+    metadataPdaAddress = metadataPda.toBase58();
+
+    const metadataIx = createCreateMetadataAccountV3Instruction(
+      {
+        metadata: metadataPda,
+        mint: mint,
+        mintAuthority: admin.publicKey,
+        payer: admin.publicKey,
+        updateAuthority: admin.publicKey,
+      },
+      {
+        createMetadataAccountArgsV3: {
+          data: {
+            name: config.tokenName,
+            symbol: config.tokenSymbol || "",
+            uri: config.tokenMetadataUri || "",
+            sellerFeeBasisPoints: 0,
+            creators: null,
+            collection: null,
+            uses: null,
+          },
+          isMutable: true,
+          collectionDetails: null,
+        },
+      }
+    );
+
+    const metadataTx = new Transaction().add(metadataIx);
+    const metadataSig = await sendAndConfirmTransaction(connection, metadataTx, [admin]);
+    console.log(`✅ Metaplex metadata account: ${metadataPdaAddress}`);
+    console.log(`   Transaction: ${metadataSig}\n`);
+    metadataCreated = true;
+  } else {
+    console.log("ℹ️  No TOKEN_NAME in .env. Skipping Metaplex metadata creation.\n");
+  }
+
+  // 7. Optionally revoke mint authority
   if (config.revokeMintAuthority) {
     console.log("🔒 Revoking mint authority (supply is now permanently fixed)...");
     const revokeTxSig = await setAuthority(
@@ -98,7 +152,7 @@ async function main(): Promise<void> {
     console.log("⚠️  Mint authority NOT revoked. Admin can still mint more tokens.\n");
   }
 
-  // 7. Print summary
+  // 8. Print summary
   console.log("═══════════════════════════════════════════════════════════");
   console.log("  TOKEN CREATION COMPLETE");
   console.log("═══════════════════════════════════════════════════════════");
@@ -107,6 +161,10 @@ async function main(): Promise<void> {
   console.log(`  Admin ATA:         ${adminAta.address.toBase58()}`);
   console.log(`  Total Supply:      ${fromBaseUnits(totalSupplyBaseUnits, config.tokenDecimals)} tokens`);
   console.log(`  Decimals:          ${config.tokenDecimals}`);
+  console.log(`  Token Name:        ${config.tokenName || "(None)"}`);
+  console.log(`  Token Symbol:      ${config.tokenSymbol || "(None)"}`);
+  console.log(`  Metadata URI:      ${config.tokenMetadataUri || "(None)"}`);
+  console.log(`  Metadata Account:  ${metadataCreated ? metadataPdaAddress : "Skipped"}`);
   console.log(`  Mint Revoked:      ${config.revokeMintAuthority ? "Yes ✅" : "No ⚠️"}`);
   console.log(`  Cluster:           ${config.solanaCluster}`);
   console.log("═══════════════════════════════════════════════════════════");

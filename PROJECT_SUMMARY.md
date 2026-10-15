@@ -218,19 +218,31 @@ anchor deploy --provider.cluster devnet
 ```
 
 ### Step 6: Execute Sale Lifecycle
-1. **Create Token**:
+1. **Create Token (with optional Metaplex Metadata)**:
    ```bash
    npm run create-token
    ```
-   *Logs the newly created mint address. Copy this into `MINT_ADDRESS` in `.env`.*
+   *Creates the mint, mints total supply, attaches on-chain Metaplex metadata (if `TOKEN_NAME` is set in `.env`), and revokes mint authority. Logs the newly created mint address. Copy this into `MINT_ADDRESS` in `.env`.*
 
 2. **Initialize Sale**:
    ```bash
    npm run create-sale
    ```
-   *Transfers `SALE_ALLOCATION` tokens into the newly initialized sale vault.*
+   *Initializes the Sale PDA and transfers `SALE_ALLOCATION` tokens into the newly initialized sale vault.*
 
-3. **Reclaim Unsold Tokens (Post-Sale)**:
+3. **Purchase Tokens (Buyer)**:
+   ```bash
+   npm run buy-tokens -- 10
+   # Or with a custom buyer keypair:
+   npm run buy-tokens -- 10 path/to/buyer.json
+   ```
+
+4. **Inspect Balances**:
+   ```bash
+   npm run check-balance
+   ```
+
+5. **Reclaim Unsold Tokens (Post-Sale)**:
    ```bash
    npm run finalize-sale
    ```

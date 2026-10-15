@@ -3,8 +3,9 @@ import * as fs from "fs";
 import * as path from "path";
 import { Connection, Keypair, clusterApiUrl, Commitment } from "@solana/web3.js";
 
-// Load .env from project root
-dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
+// Load .env from project root (supports ENV_FILE override)
+const envFileName = process.env.ENV_FILE || ".env";
+dotenv.config({ path: path.resolve(__dirname, "..", envFileName) });
 
 /**
  * Typed configuration object derived from environment variables.
@@ -21,6 +22,9 @@ export interface Config {
   saleDurationSeconds: number;
   treasuryPubkey: string;
   mintAddress: string;
+  tokenName?: string;
+  tokenSymbol?: string;
+  tokenMetadataUri?: string;
 }
 
 /**
@@ -39,6 +43,9 @@ export function getConfig(): Config {
   const saleDurationSeconds = parseInt(process.env.SALE_DURATION_SECONDS || "86400", 10);
   const treasuryPubkey = process.env.TREASURY_PUBKEY || "";
   const mintAddress = process.env.MINT_ADDRESS || "";
+  const tokenName = process.env.TOKEN_NAME || "";
+  const tokenSymbol = process.env.TOKEN_SYMBOL || "";
+  const tokenMetadataUri = process.env.TOKEN_METADATA_URI || "";
 
   if (isNaN(tokenDecimals) || tokenDecimals < 0 || tokenDecimals > 18) {
     throw new Error(`Invalid TOKEN_DECIMALS: ${process.env.TOKEN_DECIMALS}`);
@@ -59,6 +66,9 @@ export function getConfig(): Config {
     saleDurationSeconds,
     treasuryPubkey,
     mintAddress,
+    tokenName,
+    tokenSymbol,
+    tokenMetadataUri,
   };
 }
 
