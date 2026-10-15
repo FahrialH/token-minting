@@ -1,236 +1,203 @@
-# Solana Fixed-Price Token Sale — Mainnet Deployment & Launch Guide
+# Solana Fixed-Price Token Sale — Mainnet Launch Specification & Agent Guide
 
-This guide provides the complete, production-grade instructions for deploying the **Solana Fixed-Price Token Sale** program, minting tokens with permanent Metaplex metadata, and launching the sales on **Solana Mainnet-Beta**.
-
----
-
-## 1. Prerequisites & Preparation Checklist
-
-Before touching real funds or deploying to Mainnet, verify every item below:
-
-### A. Dedicated Private RPC Endpoint (Critical)
-> [!CAUTION]
-> **Do NOT use public RPC (`https://api.mainnet-beta.solana.com`) for Mainnet deployment or sales.** Public endpoints have strict rate limits, frequently drop deployment transaction chunks, and will fail during high-traffic token sales.
-
-Obtain a dedicated Mainnet RPC from an enterprise provider:
-* **Helius** (Recommended for Solana): [https://helius.dev/](https://helius.dev/)
-* **QuickNode**: [https://quicknode.com/](https://quicknode.com/)
-* **Triton / RPC Pool**: [https://triton.one/](https://triton.one/)
-
-### B. Wallet & Key Management
-1. **Never Reuse Devnet Keys**: Generate fresh, isolated keypairs for Mainnet.
-2. **Deployer / Admin Keypair**:
-   * Generates the program, token mints, and sale PDAs.
-   * Store securely in an encrypted filesystem or dedicated hardware environment.
-3. **Treasury Address (SOL Destination)**:
-   * **Best Practice**: Use a **Squads Protocol Multi-Sig** ([https://squads.so/](https://squads.so/)) or a Ledger Hardware Wallet as the `TREASURY_PUBKEY`.
-   * Ensures collected SOL proceeds cannot be compromised by a single private key leak.
-
-### C. SOL Funding & Cost Estimates (Mainnet-Beta)
-
-| Operation | Purpose | Estimated Cost |
-|---|---|---|
-| **Program Deployment** | Rent exemption for 312,200 byte SBF binary | ~1.60 SOL |
-| **On-Chain IDL Initialization** | Stores Anchor IDL on-chain for explorers | ~0.15 SOL |
-| **Token Creation (per token)** | Mint account, Admin ATA, Metaplex metadata account | ~0.025 SOL |
-| **Sale Creation (per sale)** | Sale PDA, Vault ATA, token deposit rent | ~0.025 SOL |
-| **Buffer / Transaction Fees** | Network priority fees during congestion | ~0.50 SOL |
-| **Total Recommended Balance** | Funded on Deployer Wallet | **~2.50 to 3.00 SOL** |
+## Goal
+A secure, production-grade deployment of the classic SPL token sale program to Solana Mainnet-Beta, verifiable token creation with immutable Metaplex metadata, and execution of the fixed-price sale lifecycle with strict operational and security invariants.
 
 ---
 
-## 2. Permanent Metadata Hosting (Arweave / IPFS)
+## Scope
 
-On Devnet, hosting JSON and images on GitHub was acceptable. On Mainnet, token logos and metadata **must be permanently immutable and decentralized**.
+### In Scope
+- SBF compilation and deterministic binary verification for Mainnet.
+- Program deployment to `mainnet-beta` using a dedicated private RPC and isolated keypair.
+- On-chain IDL account initialization for explorer and wallet decoding.
+- Classic SPL Token creation, total supply minting, Metaplex metadata attachment (Arweave/IPFS), and irreversible mint authority revocation.
+- Fixed-price sale initialization on Mainnet with PDA vault funding and multi-sig/cold treasury routing.
+- Verification of purchasing, pause control, and post-sale unsold token reclamation.
+- Domain security and anti-phishing whitelisting (Blowfish/Blockaid).
 
-### Recommended Hosting Services:
-1. **Arweave via Irys (formerly Bundlr)**: Permanent, one-time payment decentralized storage.
-2. **Pinata (IPFS)**: Reliable IPFS pinning service ([https://pinata.cloud/](https://pinata.cloud/)).
-
-### Standard JSON Schema (`metadata.json`):
-```json
-{
-  "name": "CYRUS",
-  "symbol": "CRS",
-  "description": "CYRUS is a blockchain-based token within the ID-OPENTECH ecosystem, connecting movement, energy generation, and Web3 rewards.",
-  "image": "https://arweave.net/<TRANSACTION_ID_OR_HASH>/logo.png",
-  "external_url": "https://cyruslab.io",
-  "attributes": [
-    { "trait_type": "Blockchain", "value": "Solana" },
-    { "trait_type": "Ecosystem", "value": "ID-OPENTECH" },
-    { "trait_type": "Token Type", "value": "Utility" },
-    { "trait_type": "Total Supply", "value": "3000000000" }
-  ],
-  "properties": {
-    "files": [
-      {
-        "uri": "https://arweave.net/<TRANSACTION_ID_OR_HASH>/logo.png",
-        "type": "image/png"
-      }
-    ],
-    "category": "image"
-  }
-}
-```
+### Out of Scope
+- DEX liquidity pool provisioning (Raydium, Meteora AMMs).
+- Web frontend hosting infrastructure.
+- Fiat onramps, KYC/allowlists, vesting schedules, and dynamic pricing models.
 
 ---
 
-## 3. Step-by-Step Mainnet Deployment Guide
+## Defaults & Prerequisites
 
-### Step 1: Create Mainnet Deploy Keypair
-If you want a dedicated Program ID keypair for Mainnet:
-```bash
-# Generate keypair inside target/deploy/
-solana-keygen new -o target/deploy/token_sale_mainnet-keypair.json --no-bip39-passphrase
-```
-Get the Program ID:
-```bash
-solana address --keypair target/deploy/token_sale_mainnet-keypair.json
-```
+- **Network**: `mainnet-beta` via private RPC (Helius, QuickNode, or Triton). Never use public RPC.
+- **Token program**: classic SPL Token (not Token-2022).
+- **Decimals**: default 9.
+- **Payment**: native SOL delivered directly to the Treasury.
+- **Treasury**: configured cold storage or Squads Protocol Multi-Sig PDA.
+- **Price**: integer lamports per whole token.
+- **Purchase quantities**: whole tokens only (`token_amount % 10^decimals == 0`).
+- **Delivery**: immediate token transfer to buyer ATA upon payment confirmation.
+- **Mint authority**: permanently revoked immediately after Metaplex metadata creation.
+- **Freeze authority**: none (`null`).
+- **Deployer balance**: minimum 2.5 SOL on Mainnet before deployment begins.
+- **Metadata storage**: permanent decentralized storage (Arweave or IPFS).
 
-### Step 2: Synchronize Program ID Across Codebase
-Update the Program ID in these 3 files:
-1. `programs/token_sale/src/lib.rs`:
-   ```rust
-   declare_id!("YOUR_MAINNET_PROGRAM_ID");
+---
+
+## Architecture & On-Chain State
+
+### 1. State Accounts
+* **Sale PDA**: `["sale", mint]`
+  * `admin: Pubkey` — Sale controller (can pause, withdraw unsold after end).
+  * `mint: Pubkey` — Token mint sold.
+  * `treasury: Pubkey` — Receives SOL payments directly.
+  * `price_lamports_per_whole_token: u64` — Price in lamports per $10^9$ base units.
+  * `token_decimals: u8` — Decimal precision.
+  * `start_ts: i64` / `end_ts: i64` — Unix timestamps bounding the sale.
+  * `allocation: u64` / `sold: u64` — Total inventory and purchased counters (base units).
+  * `per_wallet_max: u64` — Maximum base units a single buyer wallet may purchase.
+  * `paused: bool` — Emergency purchase halt switch.
+  * `bump: u8` — Canonical PDA bump.
+
+* **BuyerStats PDA**: `["buyer", sale, buyer]`
+  * `sale: Pubkey` / `buyer: Pubkey`
+  * `total_purchased: u64` — Cumulative purchases tracked against `per_wallet_max`.
+  * `bump: u8` — Canonical PDA bump.
+
+* **Token Vault**: Associated Token Account for `mint` owned by `Sale` PDA.
+
+---
+
+## Strict Agent Execution Instructions
+
+The executing agent or engineer must follow these phases sequentially without skipping any validation gate.
+
+### Phase 1: Environment & Key Isolation
+1. Confirm deployer keypair is fresh and isolated from any Devnet keypairs.
+2. Confirm `SOLANA_CLUSTER` in environment points to a paid/dedicated Mainnet RPC (e.g. `https://mainnet.helius-rpc.com/?api-key=...`).
+3. Confirm `TREASURY_PUBKEY` points to a verified Squads Multi-Sig or Ledger cold wallet.
+4. Verify deployer wallet balance:
+   ```bash
+   solana balance --url <MAINNET_RPC_URL> --keypair <PATH_TO_MAINNET_KEYPAIR>
    ```
-2. `Anchor.toml`:
-   ```toml
-   [programs.mainnet]
-   token_sale = "YOUR_MAINNET_PROGRAM_ID"
+   *Gate: Balance must be $\ge 2.5\text{ SOL}$. If insufficient, halt until funded.*
+
+### Phase 2: Program ID Synchronization & Build
+1. Generate fresh deploy keypair:
+   ```bash
+   solana-keygen new -o target/deploy/token_sale_mainnet-keypair.json --no-bip39-passphrase
    ```
-3. `target/idl/token_sale.json`:
-   ```json
-   "address": "YOUR_MAINNET_PROGRAM_ID"
+2. Extract the Program ID:
+   ```bash
+   solana address --keypair target/deploy/token_sale_mainnet-keypair.json
    ```
+3. Synchronize this Program ID across:
+   * `programs/token_sale/src/lib.rs` (`declare_id!(...)`)
+   * `Anchor.toml` (`[programs.mainnet]`)
+   * `target/idl/token_sale.json` (`"address": "..."`)
+4. Compile deterministic SBF binary inside Docker:
+   ```bash
+   docker run --rm -v "${PWD}:/work" -w /work backpackapp/build:v0.30.1 anchor build --no-idl
+   ```
+5. Verify `target/deploy/token_sale.so` exists and binary size is ~312 KB.
 
-### Step 3: Compile Deterministic SBF Binary
-Compile using Docker for reproducible bytecode:
-```powershell
-docker run --rm -v "${PWD}:/work" -w /work backpackapp/build:v0.30.1 anchor build --no-idl
-```
-Ensure the compiled binary is staged at `target/deploy/token_sale.so`.
+### Phase 3: Program Deployment & On-Chain IDL
+1. Deploy SBF binary to Mainnet-Beta:
+   ```bash
+   docker run --rm \
+     -v "<KEYPAIR_DIR>:/root/.config/solana:ro" \
+     -v "${PWD}:/work" \
+     -w /work backpackapp/build:v0.30.1 \
+     solana program deploy /work/target/deploy/token_sale.so \
+       --program-id /work/target/deploy/token_sale_mainnet-keypair.json \
+       --keypair /root/.config/solana/mainnet-admin.json \
+       --url "<MAINNET_RPC_URL>"
+   ```
+2. Initialize on-chain IDL account:
+   ```bash
+   docker run --rm \
+     -v "<KEYPAIR_DIR>:/root/.config/solana:ro" \
+     -v "${PWD}:/work" \
+     -w /work backpackapp/build:v0.30.1 \
+     anchor idl init -f /work/target/idl/token_sale.json <PROGRAM_ID> \
+       --provider.cluster "<MAINNET_RPC_URL>" \
+       --provider.wallet /root/.config/solana/mainnet-admin.json
+   ```
+   *Gate: Verify deployment using `solana program show <PROGRAM_ID> --url <MAINNET_RPC_URL>`.*
 
-### Step 4: Deploy the Program to Mainnet-Beta
-Deploy using your dedicated RPC endpoint and funded admin keypair:
-```powershell
-docker run --rm `
-  -v "C:/Users/fahri/.config/solana:/root/.config/solana:ro" `
-  -v "${PWD}:/work" `
-  -w /work backpackapp/build:v0.30.1 `
-  solana program deploy /work/target/deploy/token_sale.so `
-    --program-id /work/target/deploy/token_sale_mainnet-keypair.json `
-    --keypair /root/.config/solana/mainnet-admin.json `
-    --url "https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY"
-```
+### Phase 4: Token Creation & Metaplex Metadata Binding
+1. Verify off-chain metadata JSON and image are permanently hosted on Arweave or IPFS.
+2. Configure `.env.mainnet`:
+   * `TOKEN_NAME`: string ($\le 32$ chars)
+   * `TOKEN_SYMBOL`: string ($\le 10$ chars)
+   * `TOKEN_METADATA_URI`: Arweave/IPFS URL
+   * `TOTAL_SUPPLY`: integer supply
+   * `REVOKE_MINT_AUTHORITY=true`
+3. Execute mint script:
+   ```bash
+   $env:ENV_FILE=".env.mainnet"; npm run create-token
+   ```
+4. Verify execution order:
+   * Mint created $\rightarrow$ Admin ATA created $\rightarrow$ Total supply minted $\rightarrow$ Metaplex Metadata account created $\rightarrow$ Mint authority revoked.
+   * Record outputted `MINT_ADDRESS` into `.env.mainnet`.
 
-### Step 5: Initialize the IDL on Mainnet
-Publish the IDL to the blockchain so Solscan, Solana Explorer, and wallets automatically decode instruction arguments (`Buy`, `InitializeSale`) and account schemas:
-```powershell
-docker run --rm `
-  -v "C:/Users/fahri/.config/solana:/root/.config/solana:ro" `
-  -v "${PWD}:/work" `
-  -w /work backpackapp/build:v0.30.1 `
-  anchor idl init -f /work/target/idl/token_sale.json `
-    YOUR_MAINNET_PROGRAM_ID `
-    --provider.cluster "https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY" `
-    --provider.wallet /root/.config/solana/mainnet-admin.json
-```
+### Phase 5: Sale Initialization & Vault Deposit
+1. Configure sale terms in `.env.mainnet`:
+   * `SALE_ALLOCATION`: base units to sell.
+   * `PRICE_LAMPORTS_PER_WHOLE_TOKEN`: price in lamports per 1 whole token.
+   * `PER_WALLET_MAX_TOKENS`: limit per buyer.
+   * `SALE_DURATION_SECONDS`: duration in seconds.
+2. Execute sale creation:
+   ```bash
+   $env:ENV_FILE=".env.mainnet"; npm run create-sale
+   ```
+3. Verify on-chain state:
+   ```bash
+   $env:ENV_FILE=".env.mainnet"; npm run check-balance
+   ```
+   *Gate: Sale Vault ATA must hold exact `SALE_ALLOCATION` tokens.*
 
----
+### Phase 6: Post-Launch Security & Whitelisting
+1. Submit dApp domain and Program ID to Blowfish: [https://blowfish.xyz/](https://blowfish.xyz/) to whitelist against Solflare/Phantom scam heuristics.
+2. Verify token on Solscan and Solana Explorer:
+   * `https://solscan.io/token/<MINT_ADDRESS>`
+   * Ensure Token Name, Symbol, and Logo appear correctly.
 
-## 4. Configuring Mainnet Environment Files
-
-Create `.env.mainnet` (or configure `.env`):
-
-```ini
-# Mainnet RPC & Security
-SOLANA_CLUSTER=https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY
-ADMIN_KEYPAIR_PATH=C:\Users\fahri\.config\solana\mainnet-admin.json
-
-# Treasury Address (Multi-Sig or Cold Storage)
-TREASURY_PUBKEY=YOUR_SQUADS_MULTISIG_OR_COLD_WALLET
-
-# Token Settings (Example: CYRUS)
-TOKEN_NAME="CYRUS"
-TOKEN_SYMBOL="CRS"
-TOKEN_METADATA_URI="https://arweave.net/YOUR_METADATA_HASH/cyrus-token.json"
-TOKEN_DECIMALS=9
-TOTAL_SUPPLY=3000000000
-REVOKE_MINT_AUTHORITY=true
-
-# Sale Settings
-SALE_ALLOCATION=1500000000
-PRICE_LAMPORTS_PER_WHOLE_TOKEN=1000000
-PER_WALLET_MAX_TOKENS=5000000
-SALE_DURATION_SECONDS=604800
-
-# Generated after create-token runs
-MINT_ADDRESS=
-```
-
----
-
-## 5. Token Minting & Sale Lifecycle Execution
-
-### Step 1: Mint the Token
-```powershell
-$env:ENV_FILE=".env.mainnet"; npm run create-token
-```
-* Creates classic SPL token with 9 decimals and exact supply.
-* Publishes Metaplex Metadata account (`metaqbxx...`).
-* Permanently revokes mint authority (verifiably fixed supply).
-* Outputs `MINT_ADDRESS`. Copy this into `.env.mainnet`.
-
-### Step 2: Initialize the Sale
-```powershell
-$env:ENV_FILE=".env.mainnet"; npm run create-sale
-```
-* Creates the deterministic `["sale", mint]` PDA.
-* Creates the PDA-owned token Vault ATA.
-* Deposits the configured `SALE_ALLOCATION` from Admin ATA to the Vault.
-* Starts the sale clock (`start_ts` to `end_ts`).
-
-### Step 3: Verify with Balance Inspector
-```powershell
-$env:ENV_FILE=".env.mainnet"; npm run check-balance
-```
-* Displays live on-chain balances for Admin, Vault, and Treasury.
+### Phase 7: Sale Finalization (Post-Sale Only)
+1. Verify sale end timestamp has passed: `now >= end_ts`.
+2. Execute finalization script:
+   ```bash
+   $env:ENV_FILE=".env.mainnet"; npm run finalize-sale
+   ```
+3. Confirm unsold tokens return to Admin ATA.
 
 ---
 
-## 6. Post-Launch Operations & Security Whitelisting
+## Security Invariants & Guardrails
 
-### A. Blowfish / Solflare Whitelisting
-To prevent the *"Scam site detected"* automated warning when users connect their wallets to your frontend on Mainnet:
-1. Ensure your dApp domain uses SSL (`https://`).
-2. Go to **[https://blowfish.xyz/](https://blowfish.xyz/)** and click **Report False Positive / Submit Whitelist**.
-3. Provide:
-   * Your custom dApp domain (e.g. `launchpad.id-opentech.com`).
-   * Program ID: `YOUR_MAINNET_PROGRAM_ID`.
-   * Token Mint addresses.
-4. Once approved, Blowfish removes warnings across Phantom and Solflare.
-
-### B. Jupiter Strict List & DEX Indexing
-* Once the token sale completes or reaches target distribution, you can provision initial liquidity on **Raydium** (CPMM or AMM v4) or **Meteora**.
-* Submit your token metadata to the **Jupiter Token List** repository ([https://github.com/jup-ag/token-list](https://github.com/jup-ag/token-list)) to enable search-by-symbol on Jupiter aggregator.
+1. **Authority Revocation Order**: Metaplex metadata account creation requires active mint authority. Mint authority **must** be revoked *after* metadata initialization, never before.
+2. **Immutable Treasury**: The treasury address is written permanently to the `Sale` PDA during `initialize_sale`. Buyers cannot redirect SOL payments.
+3. **Whole-Token Multiples**: Program rejects any purchase where `token_amount % 10^decimals != 0`.
+4. **Time Window Guarantees**: Purchases before `start_ts` or at/after `end_ts` fail immediately.
+5. **Checked Math**: All additions, multiplications, and counter increments must use checked operations (`checked_add`, `checked_mul`).
+6. **No Committed Keys**: Mainnet keypairs must never be committed to git or exposed in build artifacts.
 
 ---
 
-## 7. Emergency Controls & Finalization
+## Acceptance Criteria
 
-### Pausing the Sale (Emergency Freeze)
-If unusual activity occurs, the admin can immediately toggle the sale paused state on-chain:
-```typescript
-await program.methods.togglePause().accounts({ admin, sale }).rpc();
-```
-* While paused, all buyer purchase transactions are instantly rejected by the smart contract (`SalePaused`).
+The Mainnet launch is complete only when all criteria below are verified:
 
-### Reclaiming Unsold Tokens (Post-Sale Window)
-Once `SALE_DURATION_SECONDS` has elapsed:
-```powershell
-$env:ENV_FILE=".env.mainnet"; npm run finalize-sale
-```
-* On-chain contract validates `Clock::get()?.unix_timestamp >= sale.end_ts`.
-* Transfers all remaining unsold tokens from the Sale PDA Vault back to the Admin ATA.
-* Sale proceeds (SOL) have already arrived safely in the Treasury.
+- [ ] **RPC Isolation**: Deployment executed through private dedicated RPC endpoint.
+- [ ] **Bytecode Verification**: On-chain Program matches local SBF release binary hash.
+- [ ] **On-Chain IDL**: Program IDL is published and verified on Solana Mainnet.
+- [ ] **Supply Cap**: Mint authority is `None` (verifiably revoked); no freeze authority.
+- [ ] **Metadata Rendering**: Phantom and Solscan correctly render Token Name, Symbol, and Logo image from permanent storage.
+- [ ] **Vault Custody**: Sale Vault ATA is owned by the `Sale` PDA and funded with exact `SALE_ALLOCATION`.
+- [ ] **Treasury Delivery**: Purchase transactions deliver SOL directly to the multi-sig/cold treasury with zero intermediate custody.
+- [ ] **Guardrails Enforced**: Attempts to buy after `end_ts`, buy beyond wallet cap, or withdraw before `end_ts` fail with specific error codes.
+- [ ] **Runbook Documentation**: All Mainnet addresses (Program ID, Mint, Sale PDA, Vault ATA, Treasury) recorded in `PROJECT_SUMMARY.md`.
+
+---
+
+## Known Limitations & Operational Notes
+
+- **Network Congestion**: During periods of high Solana traffic, priority fees may need adjustment in `@solana/web3.js` transactions (`ComputeBudgetProgram.setComputeUnitPrice`).
+- **Irreversible Revocation**: Once `REVOKE_MINT_AUTHORITY` executes, no additional tokens can ever be minted. Total supply is mathematically fixed.
+- **DEX Listing**: Sale tokens must conclude initial sale distribution or reserve liquidity before pooling on Raydium/Meteora to prevent front-running.
